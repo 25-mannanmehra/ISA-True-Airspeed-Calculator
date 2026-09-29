@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ISA &amp; True Airspeed Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b1622; --panel:#101f30; --panel-2:#152840; --line:#233a53;
+    --amber:#ffb703; --cyan:#5cc8ff; --text:#e7edf5; --muted:#7d8fa8;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:inherit;}
+  html{scroll-padding-top:env(safe-area-inset-top,0px);}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Space Grotesk', system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:28px 20px 60px;}
+  header{margin-bottom:22px;}
+  header .kicker{color:var(--cyan); font-size:13px; letter-spacing:.04em;}
+  h1{font-size:26px; margin:6px 0 4px; font-weight:700;}
+  header p{color:var(--muted); font-size:14.5px; margin:0; max-width:60ch;}
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media (max-width:760px){.grid{grid-template-columns:1fr;}}
+
+  .panel{
+    background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border:1px solid var(--line); border-radius:10px; padding:20px;
+  }
+  .panel h2{font-size:15px; margin:0 0 14px; color:var(--text); display:flex; align-items:center; gap:8px;}
+  .panel h2 .dot{width:8px; height:8px; border-radius:50%; background:var(--amber); flex:none;}
+  .panel.speed h2 .dot{background:var(--cyan);}
+
+  label{display:block; font-size:12.5px; color:var(--muted); margin:14px 0 6px;}
+  label:first-of-type{margin-top:0;}
+  input[type=number]{
+    width:100%; background:#0a1521; border:1px solid var(--line); color:var(--text);
+    font-family:'JetBrains Mono', monospace; font-size:16px; padding:9px 10px; border-radius:6px;
+  }
+  input[type=number]:focus{outline:2px solid var(--amber); outline-offset:1px;}
+  input[type=range]{width:100%; accent-color:var(--amber);}
+  .speed input[type=range]{accent-color:var(--cyan);}
+
+  select{
+    width:100%; background:#0a1521; border:1px solid var(--line); color:var(--text);
+    font-size:14px; padding:9px 10px; border-radius:6px; font-family:inherit;
+  }
+
+  .readout{margin-top:18px; border-top:1px dashed var(--line); padding-top:14px;}
+  .row{display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; font-size:14px;}
+  .row .k{color:var(--muted);}
+  .row .v{font-family:'JetBrains Mono', monospace; font-weight:500; font-size:15px;}
+  .row .v.big{color:var(--amber); font-size:19px; font-weight:700;}
+  .speed .row .v.big{color:var(--cyan);}
+
+  .chart-wrap{margin-top:20px;}
+  .chart-wrap h2{font-size:15px; margin:0 0 12px;}
+  svg{width:100%; height:auto; display:block;}
+  .axis-label{fill:var(--muted); font-size:10px; font-family:'JetBrains Mono',monospace;}
+  .curve{fill:none; stroke:var(--amber); stroke-width:2;}
+  .grid-line{stroke:var(--line); stroke-width:1;}
+  .marker{fill:var(--cyan); stroke:var(--bg); stroke-width:2;}
+
+  footer{margin-top:26px; color:var(--muted); font-size:12.5px; text-align:center;}
+  footer code{font-family:'JetBrains Mono',monospace; color:var(--text);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">ICAO STANDARD ATMOSPHERE · PITOT-STATIC MODEL</div>
+    <h1>ISA &amp; True Airspeed Calculator</h1>
+    <p>Move the altitude tape to see how temperature, pressure, and density change with height — then convert an indicated airspeed into the aircraft's true speed through that air.</p>
+  </header>
+
+  <div class="grid">
+    <div class="panel atmo">
+      <h2><span class="dot"></span>Atmosphere at altitude</h2>
+      <label for="altInput">Altitude (metres, geometric)</label>
+      <input type="number" id="altInput" value="8000" min="0" max="51000" step="100">
+      <input type="range" id="altSlider" value="8000" min="0" max="51000" step="100">
+      <div class="readout" id="atmoReadout"></div>
+    </div>
+
+    <div class="panel speed">
+      <h2><span class="dot"></span>Airspeed conversion</h2>
+      <label for="iasInput">Indicated / Calibrated airspeed (knots)</label>
+      <input type="number" id="iasInput" value="250" min="0" max="700" step="1">
+      <input type="range" id="iasSlider" value="250" min="0" max="500" step="1">
+      <label for="modelSelect">Model</label>
+      <select id="modelSelect">
+        <option value="compressible" selected>Compressible (isentropic)</option>
+        <option value="incompressible">Incompressible (approx.)</option>
+      </select>
+      <div class="readout" id="speedReadout"></div>
+    </div>
+  </div>
+
+  <div class="panel chart-wrap">
+    <h2>Density profile — 0 to 20,000 m</h2>
+    <svg id="chart" viewBox="0 0 640 220"></svg>
+  </div>
+
+  <footer>Physics: ICAO/ISO 2533 layer equations · isentropic pitot-static relations. Built for the VITyarthi "Build Your Own Project" submission.<br>Command-line twin: <code>python main.py atmosphere --altitude 8000</code></footer>
+</div>
+
+<script>
+// ---- ISA physics (mirrors src/isa_engine.py and src/pitot_solver.py) ----
+const G0 = 9.80665, R = 287.05287, GAMMA = 1.4, EARTH_R = 6356766;
+const P0 = 101325.0, RHO0 = 1.225, A0 = 340.294;
+const MU0 = 1.716e-5, MU_T0 = 273.15, MU_S = 110.4;
+const LAYERS = [
+  {h0:0,     T0:288.15, L:-0.0065},
+  {h0:11000, T0:216.65, L:0},
+  {h0:20000, T0:216.65, L:0.0010},
+  {h0:32000, T0:228.65, L:0.0028},
+  {h0:47000, T0:270.65, L:0},
+];
+// Precompute base pressure of each layer by chaining from sea level.
+const P_BASE = [P0];
+for(let i=1;i<LAYERS.length;i++){
+  const prev = LAYERS[i-1], top = LAYERS[i].h0, pb = P_BASE[i-1];
+  if(prev.L===0){ P_BASE.push(pb*Math.exp(-G0*(top-prev.h0)/(R*prev.T0))); }
+  else{ const tTop = prev.T0+prev.L*(top-prev.h0); P_BASE.push(pb*Math.pow(tTop/prev.T0, -G0/(R*prev.L))); }
+}
+function geomToGeopotential(H){ return EARTH_R*H/(EARTH_R+H); }
+function findLayer(h){ let idx=0; for(let i=0;i<LAYERS.length;i++){ if(h>=LAYERS[i].h0) idx=i; else break; } return idx; }
+function atmosphere(altGeometric){
+  const h = geomToGeopotential(altGeometric);
+  const idx = findLayer(h), layer = LAYERS[idx], pb = P_BASE[idx];
+  let T, P;
+  if(layer.L===0){ T = layer.T0; P = pb*Math.exp(-G0*(h-layer.h0)/(R*layer.T0)); }
+  else{ T = layer.T0+layer.L*(h-layer.h0); P = pb*Math.pow(T/layer.T0, -G0/(R*layer.L)); }
+  const rho = P/(R*T);
+  const a = Math.sqrt(GAMMA*R*T);
+  const mu = MU0*Math.pow(T/MU_T0,1.5)*(MU_T0+MU_S)/(T+MU_S);
+  return {T,P,rho,a,mu};
+}
+function tasCompressible(casKt, altM){
+  const atmo = atmosphere(altM);
+  const casMps = casKt/1.9438444924;
+  const qc = P0*(Math.pow(1+0.2*Math.pow(casMps/A0,2),3.5)-1);
+  const mach = Math.sqrt(5*(Math.pow(qc/atmo.P+1,2/7)-1));
+  const tasMps = mach*atmo.a;
+  return {mach, tasKt: tasMps*1.9438444924, tasMps, atmo};
+}
+function tasIncompressible(iasKt, altM){
+  const atmo = atmosphere(altM);
+  const iasMps = iasKt/1.9438444924;
+  const tasMps = iasMps*Math.sqrt(RHO0/atmo.rho);
+  return {mach: tasMps/atmo.a, tasKt: tasMps*1.9438444924, tasMps, atmo};
+}
+
+// ---- UI wiring ----
+const altInput=document.getElementById('altInput'), altSlider=document.getElementById('altSlider');
+const iasInput=document.getElementById('iasInput'), iasSlider=document.getElementById('iasSlider');
+const modelSelect=document.getElementById('modelSelect');
+const atmoReadout=document.getElementById('atmoReadout'), speedReadout=document.getElementById('speedReadout');
+
+function row(k,v,big){ return `<div class="row"><span class="k">${k}</span><span class="v${big?' big':''}">${v}</span></div>`; }
+
+function renderAtmo(){
+  const alt = Math.max(0, Math.min(51000, Number(altInput.value)||0));
+  const s = atmosphere(alt);
+  atmoReadout.innerHTML =
+    row('Altitude', `${alt.toFixed(0)} m / ${(alt*3.28084).toFixed(0)} ft`, true) +
+    row('Temperature', `${s.T.toFixed(2)} K (${(s.T-273.15).toFixed(1)} °C)`) +
+    row('Pressure', `${(s.P/100).toFixed(2)} hPa`) +
+    row('Density', `${s.rho.toFixed(5)} kg/m³`) +
+    row('Speed of sound', `${s.a.toFixed(2)} m/s`) +
+    row('Dyn. viscosity', `${s.mu.toExponential(3)} Pa·s`);
+  drawChart(alt);
+  renderSpeed();
+}
+function renderSpeed(){
+  const alt = Math.max(0, Math.min(51000, Number(altInput.value)||0));
+  const ias = Math.max(0, Math.min(700, Number(iasInput.value)||0));
+  const fn = modelSelect.value==='compressible' ? tasCompressible : tasIncompressible;
+  const r = fn(ias, alt);
+  speedReadout.innerHTML =
+    row('True airspeed', `${r.tasKt.toFixed(1)} kt`, true) +
+    row('TAS (m/s)', r.tasMps.toFixed(2)) +
+    row('Mach number', r.mach.toFixed(4)) +
+    row('Model', modelSelect.options[modelSelect.selectedIndex].text);
+}
+function drawChart(currentAlt){
+  const svg=document.getElementById('chart');
+  const W=640,H=220,padL=48,padR=14,padT=10,padB=24;
+  const maxAlt=20000, pts=[];
+  for(let h=0;h<=maxAlt;h+=250){ pts.push([h, atmosphere(h).rho]); }
+  const maxRho=1.25;
+  const x=h=>padL+(h/maxAlt)*(W-padL-padR);
+  const y=r=>padT+(1-r/maxRho)*(H-padT-padB);
+  let d=`M ${x(pts[0][0])} ${y(pts[0][1])}`;
+  for(const [h,r] of pts) d+=` L ${x(h)} ${y(r)}`;
+  const curAlt=Math.min(currentAlt,maxAlt), curRho=atmosphere(curAlt).rho;
+  svg.innerHTML = `
+    <line class="grid-line" x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}"/>
+    <line class="grid-line" x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}"/>
+    <path class="curve" d="${d}"/>
+    <circle class="marker" cx="${x(curAlt)}" cy="${y(curRho)}" r="5"/>
+    <text class="axis-label" x="${padL}" y="${H-6}">0 m</text>
+    <text class="axis-label" x="${W-padR-40}" y="${H-6}">${maxAlt.toLocaleString()} m</text>
+    <text class="axis-label" x="4" y="${padT+8}">1.225</text>
+    <text class="axis-label" x="4" y="${H-padB}">0 kg/m³</text>
+  `;
+}
+
+altInput.addEventListener('input', ()=>{ altSlider.value=altInput.value; renderAtmo(); });
+altSlider.addEventListener('input', ()=>{ altInput.value=altSlider.value; renderAtmo(); });
+iasInput.addEventListener('input', ()=>{ iasSlider.value=Math.min(500,iasInput.value); renderSpeed(); });
+iasSlider.addEventListener('input', ()=>{ iasInput.value=iasSlider.value; renderSpeed(); });
+modelSelect.addEventListener('change', renderSpeed);
+
+renderAtmo();
+</script>
+</body>
+</html>
